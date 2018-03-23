@@ -1,0 +1,6 @@
+Local build run 
+ mvn compile vertx:run
+
+deploy to openshift
+ 1 oc new-project vertxdemo
+ 2.mvn fabric8:deploy -Popenshift 

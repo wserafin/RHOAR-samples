@@ -1,0 +1,15 @@
+1. mvn verify
+
+2. mvn spring-boot:run -DskipTests
+
+3. Openshift mvn package fabric8:deploy -Popenshift -DskipTests
+   oc rollout status dc/fruits
+
+oc new-app -e POSTGRESQL_USER=luke \
+             -e POSTGRESQL_PASSWORD=secret \
+             -e POSTGRESQL_DATABASE=my_data \
+             openshift/postgresql-92-centos7 \
+             --name=my-database
+
+mvn package fabric8:deploy -Popenshift -DskipTests
+oc rollout status dc/fruits

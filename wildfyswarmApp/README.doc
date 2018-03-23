@@ -1,0 +1,77 @@
+
+1. mvn wildfly-swarm:run
+
+2. 
+oc new-project example --display-name="Sample WildFly Swarm Health Check App"
+mvn clean fabric8:deploy -Popenshift
+oc rollout status dc/healthcheck
+
+
+Add fractions for health check
+What is a Fraction?
+WildFly Swarm is defined by an unbounded set of capabilities. Each piece of functionality is called a fraction. Some fractions provide only access to APIs, such as JAX-RS or CDI; other fractions provide higher-level capabilities, such as integration with RHSSO (Keycloak).
+
+The typical method for consuming WildFly Swarm fractions is through Maven coordinates, which you add to the pom.xml file in your application. The functionality the fraction provides is then 
+packaged with your application into an Uberjar. An uberjar is a single Java .jar file that includes everything you need to execute your application. This includes both the runtime components you have selected, along with the application logic.
+
+1. Examine the uberjar
+
+You can see the uberjar (in the target/ directory) that you built in previous steps:
+
+ls -l target/*.jar
+
+You should see the uberjar named healthcheck-1.0.0-SNAPSHOT-swarm.jar in the listing. This jar file is executed using java -jar when using mvn wildfly-swarm:run or when the application is deployed to OpenShift.
+An uberjar is useful for many continuous integration and continuous deployment (CI/CD) pipeline styles, in which a single executable binary artifact is produced and moved through the testing, validation, and production environments in your organization.
+
+2. Add monitor fraction
+
+WildFly Swarm includes the monitor fraction which automatically adds health check infrastructure to your application when it is included as a fraction in the project. Click Copy To Editor to insert the new dependencies into the pom.xml file:
+
+        <!-- Add monitor fraction -->
+        <dependency>
+            <groupId>org.wildfly.swarm</groupId>
+            <artifactId>monitor</artifactId>
+        </dependency>
+By adding the monitor fraction, Fabric8 will automatically add a readinessProbe and livenessProbe to the OpenShift DeploymentConfig once deployed to OpenShift. But you still need to implement the logic behind the health check, which you'll do next.
+
+Define health check endpoint
+We are now ready to define the logic of our health check endpoint.
+
+1. Create empty file and open it
+
+Click here to create the new file: touch src/main/java/com/example/HealthChecks.java
+
+HTTP GET endpoint which will return the status of the service. For this example, we are using a simple boolean flag IS_ALIVE which will control whether the application is able to take requests. The method is annotated with WildFly Swarm's @Health annotation, which directs WildFly Swarm to expose this endpoint as a health check at /health.
+
+With our new health check in place, we'll need to build and deploy the updated application in the next step.
+
+Rebuild and re-deploy
+
+With our health check in place, lets rebuild and redeploy using the same command as before:
+
+mvn clean fabric8:deploy -Popenshift
+
+You should see a BUILD SUCCESS at the end of the build output.
+
+During build and deploy, you'll notice WildFly Swarm adding in health checks for you:
+
+[INFO] F8: wildfly-swarm-health-check: Adding readiness probe on port 8080, path='/health', scheme='HTTP', with initial delay 10 seconds
+
+To verify that everything is started, run the following command and wait for it report replication controller "healthcheck-3" successfully rolled out
+
+oc rollout status dc/healthcheck
+
+Once the project is deployed, you should be able to access the health check logic at the /api/service/health endpoint using a simple curl command.
+
+This is the same API that OpenShift will repeatedly poll to determine application health.
+
+Click here to try it (you may need to try a few times until the project is fully deployed):
+
+curl http://healthcheck-example.2886795274-80-simba02.environments.katacoda.com/api/service/health
+
+You should see a JSON response like:
+
+{"id":"server-state","result":"UP"}
+2. Adjust probe timeout
+
+The various timeout values for the probes can be configured in many 

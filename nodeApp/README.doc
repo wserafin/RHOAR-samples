@@ -1,0 +1,182 @@
+
+npm install
+npm start
+
+oc new-project example --display-name="Sample Node.js External Config App"
+
+Deploy to OpenShift
+Now that you've logged into OpenShift, let's deploy the same sample application as before.
+
+1. Build and Deploy
+
+Build and deploy the project using the following command:
+
+npm run openshift
+
+This uses NPM and the Nodeshift project to build and deploy the sample application to OpenShift using the containerized Node.js runtime. Nodeshift uses the files in the .nodeshift directory of the sample project to create the necessary Kubernetes objects to cause the application to be deployed.
+
+The build and deploy may take a minute or two. Wait for it to complete. You should see INFO done at the end of the build output, and you should not see any obvious errors or failures.
+
+After the build finishes it will take less than a minute for the application to become available. To verify that everything is started, run the following command and wait for it report replication controller "nodejs-configmap-1" successfully rolled out
+
+oc rollout status dc/nodejs-configmap
+
+ Access the application running on OpenShift
+
+This sample project includes a simple UI that allows you to access the Greeting API. Click the route URL to open up the sample application in a separate browser tab:
+
+What is a ConfigMap?
+ConfigMap is an object used by OpenShift to inject configuration data as simple key and value pairs into one or more Linux containers while keeping the containers agnostic of OpenShift. You can create a ConfigMap object in a variety of different ways, including using a YAML file, and inject it into the Linux container. You can find more information about ConfigMap in the OpenShift documentation.
+
+Why ConfigMap is Important
+It is important for an application’s configuration to be externalized and separate from its code. This allows for the application’s configuration to change as it moves through different environments while leaving the code unchanged. This also keeps sensitive or internal information out of your codebase and version control. Many languages and application servers provide environment variables to support externalizing an application’s configuration. Microservices and Linux containers increase the complexity of this by adding pods, or groups of containers representing a deployment, and polyglot environments. ConfigMaps enable application configuration to be externalized and used in individual Linux containers and pods in a language agnostic way. ConfigMaps also allow sets of configuration data to be easily grouped and scaled, which enables you to configure an arbitrarily large number of environments beyond the basic Dev, Stage, and Production.
+
+Design Tradeoffs
+Pros
+
+Configuration is separate from deployments
+Can be updated independently
+Can be shared across services
+Cons
+
+Configuration is separate from deployments
+Has to be maintained separately
+Requires coordination beyond the scope of a service
+Notice the first Pro is also the first Con. Separating configuration is generally a good practice for cloud native applications, but it does come at some cost. However the pros far outweigh the cons as explained earlier. Let's modify the sample app to separate its config using OpenShift ConfigMaps!
+
+Add NPM modules for ConfigMap support
+
+The NPM package ecosystem contains projects that help implement various functionality in Node apps. To enable our sample Node app to access OpenShift ConfigMaps, you'll need to declare a dependency on a couple of npm packages.
+
+Execute the following command to insert the new dependencies into the package.json file:
+
+npm install "openshift-config-loader@^0.4.0" "openshift-rest-client@^0.7.0" --save-prod
+
+This will install the needed dependencies at their necessary versions and update the package.json file. Close the file (click on the small 'X' near the filename) and then re-open the file (click here: package.json) to see the additional dependencies added near the bottom of the file.
+
+By adding these dependencies the application will be able to access its configuration from OpenShift using a ConfigMap. But you still need to implement the logic behind that access, which you'll do next.
+
+
+Add logic for retrieving ConfigMaps
+We are now ready to change our application to use ConfigMaps!
+
+In the sample application is the hard-coded message that is returned to the caller of the service:
+
+let message = "Default hard-coded greeting: Hello, %s!";
+We'll override this value by periodically retrieving a ConfigMap and overriding the value of message.
+
+n app.js add a new block of code that is executed every 2 seconds that retrieves the message value and overrides the variable. Click the Copy to Editor button below to place this code in app.js:
+
+Copy to EditorsetInterval(() => {
+  retrieveConfigMap().then((config) => {
+    if (!config) {
+      message = null;
+      return;
+    }
+
+    if (JSON.stringify(config) !== JSON.stringify(configMap)) {
+      configMap = config;
+      message = config.message;
+    }
+  }).catch((err) => {
+
+  });
+}, 2000);
+
+We are using Promise chaining to write efficient yet readable asynchronous method call chains to retrieve the ConfigMap.
+
+The above method calls setInterval() (a Node.js interval timer) to periodically invoke retrieveConfigMap() which returns a promise object which, once complete, which will return the ConfigMap object named config and pass it to the callback to override the value of message. We catch and ignore errors for the purposes of this sample.
+
+Now that we have the logic in place to update the value, we need to implement the missing retrieveConfigMap() method which will need to return a promise to call into OpenShift and retrieve the ConfigMap content itself.
+
+2. Add ConfigMap retrieval logic
+
+Click on Copy To Editor below to implement the logic in app.js
+
+Copy to Editor// Find the Config Map
+function retrieveConfigMap () {
+  return openshiftConfigLoader().then((config) => {
+    const settings = {
+      request: {
+        strictSSL: false
+      }
+    };
+
+    return openshiftRestClient(config, settings).then((client) => {
+      const configMapName = 'app-config';
+      return client.configmaps.find(configMapName).then((configMap) => {
+        const configMapParsed = jsyaml.safeLoad(configMap.data['app-config.yml']);
+        return configMapParsed;
+      });
+    });
+  });
+}
+
+In this code we are returning yet another promise which will be responsible for using the openshift-config-loader and openshift-rest-client module to make the call to the OpenShift REST API and retrieve the ConfigMap.
+
+The use of promises and promise chaining may take a little getting used to, but ultimately it results in an ordered and well-defined process to retrieve the ConfigMap from OpenShift, parse it into a Javascript-friendly JSON object, and use it to override the value of our message variable so that we can control its value externally, without requiring any changes in the application code. The final chain called every 2 seconds looks something like:
+
+openshiftRestClient -> retrieve ConfigMap using .find('app-config') -> convert yaml to json ->  override message value
+
+With our new logic in place, we can now create the actual ConfigMap within OpenShift which will contain the config vales accessed by the logic.
+
+
+
+
+Getting Started with Node.js on OpenShift
+ Step 6 of 8 
+Create ConfigMap
+ConfigMaps can be created in a few different ways. For this example we will use the oc command to create a ConfigMap based on the contents of the  app-config.yml file included as part of the sample application.
+
+1. Assign permissions
+
+Applications needing to access ConfigMaps need permission to do so. Click on the below command to grant access to the application:
+
+oc policy add-role-to-user view -n $(oc project -q) -z default
+
+2. Create ConfigMap using oc
+
+Click on the below command to create the ConfigMap object. Since you're still logged into OpenShift, and currently in the example project, the ConfigMap will be created there, and accessible from applications running within this project.
+
+oc create configmap app-config --from-file=app-config.yml
+
+The name app-config is the same name as is used in the code in app.js to access the ConfigMap at runtime.
+
+3. Verify your ConfigMap configuration has been deployed
+
+oc get configmap app-config -o yaml
+
+You should see the contents of the ConfigMap in the terminal window:
+
+apiVersion: v1
+data:
+app-config.yml: |
+  message : "Hello, %s from a ConfigMap !"
+kind: ConfigMap
+metadata:
+creationTimestamp: ...
+name: app-config
+namespace: example
+resourceVersion: "..."
+selfLink: /api/v1/namespaces/example/configmaps/app-config
+uid: ...
+The data field of the ConfigMap contains key/value pairs, in this case a key of app-config.yml (derived from the name of the file from which the ConfigMap was initialized) which contains the configuration values. At runtime, the code you wrote in the last step accesses the ConfigMap using these names to read the content (in this case, the message value that we use in the app to customize the returned message at runtime).
+
+Now that you have the application coded to read the ConfigMap, and have created the ConfigMap, it's time to re-deploy the application and test out our new functionality.
+
+Redeploy to OpenShift
+With our code and ConfigMap in place, lets rebuild and redeploy using the same command as before. Execute the command:
+
+npm run openshift
+
+The rebuild and redeploy may take a minute or two. Wait for it to complete.
+
+After the build finishes it will take less than a minute for the application to become available. To verify that everything is started, run the following command and wait for it report replication controller "nodejs-configmap-2" successfully rolled out
+
+oc rollout status dc/nodejs-configmap
+
+Once the application is re-deployed, re-visit the sample UI by clicking the
+
+Test the updated app
+
+Enter a name in the 'Name' field and click Invoke to test out the service. You should now see the updated message Hello, [name] from a ConfigMap ! indicating that the application successfully accessed the ConfigMap and used its value for the message.
